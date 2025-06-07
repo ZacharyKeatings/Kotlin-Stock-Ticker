@@ -27,8 +27,8 @@ fun StockTickerApp() {
         val user: UserIdentity = AuthManager.getCurrentUser()
 
         if (user.type == "registered" && !user.token.isNullOrBlank()) {
-            // Registered user found → navigate straight to home/{username}/{token}
-            setStartDestination("home/${user.username}/${user.token}")
+            // Registered user found → navigate straight to home
+            setStartDestination("home")
         } else {
             // Either token is missing/invalid or explicitly a guest → go to “start”
             setStartDestination("start")

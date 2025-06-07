@@ -57,9 +57,9 @@ fun LobbyScreen(
             // Construct the correct route arguments: if guest, username will be "guest" and token = ""
             val actualUsername = username ?: "guest"
             val actualToken = token ?: ""
-            navController.navigate("inGame/$gameId/$actualUsername/$actualToken") {
+            navController.navigate("inGame/$gameId") {
                 // Pop the lobby off the back stack so the user can't go back to it
-                popUpTo("lobby/$gameId/$actualUsername/$actualToken") { inclusive = true }
+                popUpTo("lobby/$gameId") { inclusive = true }
             }
         }
     }
