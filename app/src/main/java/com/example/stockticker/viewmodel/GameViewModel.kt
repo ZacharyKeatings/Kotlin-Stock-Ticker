@@ -263,23 +263,37 @@ class GameViewModel : ViewModel() {
 
     /**
      * Called by UI when a new player wants to join. Emits “game:join”.
-     * Provide the gameId, username, and (optional) JWT token. On success,
-     * server will broadcast “game:update” to all. On failure, server returns error.
+     * On success, server will broadcast “game:update” to all. On failure,
+     * server ACKs with { success: false, message: ... }.
      */
-    fun joinGame(gameId: String, username: String, token: String?) {
+    fun joinGame(
+        gameId: String,
+        username: String?,
+        token: String?,
+        onSuccess: () -> Unit = {},
+        onError: (errorMessage: String) -> Unit = {}
+    ) {
         viewModelScope.launch {
-            val payload = JSONObject()
-                .put("gameId", gameId)
-                .put("username", username)
-                .put("token", token)
-            socket.emit("game:join", payload, io.socket.client.Ack { ackArgs ->
+            val payload = JSONObject().apply {
+                put("gameId", gameId)
+                put("username", username)
+                put("token", token)
+            }
+            socket.emit("game:join", payload, Ack { ackArgs ->
                 val first = ackArgs.firstOrNull() as? JSONObject
-                if (first != null) {
-                    val success = first.optBoolean("success", false)
-                    if (!success) {
-                        val errorMsg = first.optString("message", "Join failed")
-                        _state.update { old -> old.copy(toastMessage = errorMsg) }
+                val ok = first?.optBoolean("success", false) ?: false
+                if (ok) {
+                    // fire the optional callback on the Main thread
+                    viewModelScope.launch(Dispatchers.Main) {
+                        onSuccess()
                     }
+                } else {
+                    val msg = first?.optString("message") ?: "Join failed"
+                    viewModelScope.launch(Dispatchers.Main) {
+                        onError(msg)
+                    }
+                    // also queue a toast so that hosts get notified
+                    _state.update { it.copy(toastMessage = msg) }
                 }
             })
         }
@@ -429,25 +443,6 @@ class GameViewModel : ViewModel() {
                     }
                 }
             )
-        }
-    }
-
-
-    /**
-     * Stub for joining a game by ID. Fill in with real socket logic later.
-     */
-    fun joinGame(
-        gameId: String,
-        username: String?,
-        token: String?,
-        onSuccess: () -> Unit,
-        onError: (errorMessage: String) -> Unit
-    ) {
-        viewModelScope.launch {
-            // **TODO**: Emit socket.emit("game:join", { gameId, username, token }) and listen for ack.
-            // For now, assume join always succeeds after a short delay:
-            kotlinx.coroutines.delay(500)
-            onSuccess()
         }
     }
 }

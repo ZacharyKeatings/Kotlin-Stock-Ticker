@@ -175,10 +175,32 @@ fun AppNavHost(startDestination: String = "start") {
             GameListScreen(
                 username = usernameOrGuest,
                 token    = tokenOrEmpty,
+
                 onJoin   = { gameId ->
-                    navController.navigate("lobby/$gameId/$usernameOrGuest/$tokenOrEmpty")
+                    // 1) Optionally reset any stale state
+                    gameVm.clearGameState()
+
+                    // 2) Emit the join event
+                    gameVm.joinGame(
+                        gameId = gameId,
+                        username = if (usernameOrGuest == "guest") null else usernameOrGuest,
+                        token    = if (usernameOrGuest == "guest") null else tokenOrEmpty,
+
+                        onSuccess = {
+                            // 3) Only once the server says “you’re in”, navigate to the lobby
+                            navController.navigate("lobby/$gameId/$usernameOrGuest/$tokenOrEmpty") {
+                                popUpTo("gameList/$usernameOrGuest/$tokenOrEmpty") { inclusive = true }
+                            }
+                        },
+
+                        onError = { err ->
+                            // TODO: surface this to the user via a Snackbar or dialog
+                            println("Failed to join game $gameId: $err")
+                        }
+                    )
                 },
-                onBack   = {
+
+                onBack = {
                     navController.popBackStack()
                 }
             )
@@ -254,6 +276,18 @@ fun AppNavHost(startDestination: String = "start") {
                 onToast      = { msg ->
                     // show a Snackbar or dialog if desired
                 },
+                onGameComplete = {
+                    // Navigate to your GameOverScreen route
+                    if (usernameOrGuest == "guest") {
+                        navController.navigate("gameOver/$gameId/guest/") {
+                            popUpTo("inGame/$gameId/$usernameOrGuest/$tokenOrEmpty") { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate("gameOver/$gameId/$usernameOrGuest/$tokenOrEmpty") {
+                            popUpTo("inGame/$gameId/$usernameOrGuest/$tokenOrEmpty") { inclusive = true }
+                        }
+                    }
+                },
                 onReturnHome = {
                     if (usernameOrGuest == "guest") {
                         navController.navigate("home/guest/") {
@@ -286,7 +320,7 @@ fun AppNavHost(startDestination: String = "start") {
             val tokenOrEmpty    = backStackEntry.arguments!!.getString("tokenOrEmpty")!!
 
             GameOverScreen(
-                gameId = gameId,
+                gameVm = gameVm,
                 onReturnHome = {
                     if (usernameOrGuest == "guest") {
                         navController.navigate("home/guest/") {

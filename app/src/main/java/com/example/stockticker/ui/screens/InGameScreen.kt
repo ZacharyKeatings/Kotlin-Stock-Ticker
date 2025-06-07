@@ -25,6 +25,7 @@ fun InGameScreen(
     token        : String?,
     gameVm       : GameViewModel,
     onToast      : (String) -> Unit,
+    onGameComplete: () -> Unit,
     onReturnHome : () -> Unit
 ) {
     // 1) Observe the ViewModel’s state (full game JSON, lastRoll, toast, etc.)
@@ -116,7 +117,7 @@ fun InGameScreen(
     // 10) If the game transitions to "complete", immediately navigate home
     LaunchedEffect(status) {
         if (status == "complete") {
-            onReturnHome()
+            onGameComplete()
         }
     }
 
