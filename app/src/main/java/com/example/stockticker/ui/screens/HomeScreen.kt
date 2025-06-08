@@ -1,29 +1,25 @@
 package com.example.stockticker.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.stockticker.ui.theme.*
 
-/**
- * If `username == "guest"`, then this is the guest variant (token is ignored).
- * Otherwise a logged‐in user.
- *
- * @param username      Either a real username or the literal string "guest".
- * @param token         JWT token (empty string for "guest").
- * @param onCreateGame  Called when the user taps “Create Game”.
- * @param onJoinGame    Called when the user taps “Join Game by ID”.
- * @param onFindGame    Called when the user taps “Find Public Game”.
- * @param onRejoinGame  Called when the user taps “Rejoin My Active Game”. Pass a gameId.
- * @param onProfile     Called when the user taps the “Profile” icon. Null if guest.
- * @param onSettings    Called when the user taps the “Settings” icon. Null if guest.
- */
 @Composable
 fun HomeScreen(
     username: String,
     token: String,
+    lastGameId: String?,
     onCreateGame: () -> Unit,
     onJoinGame: () -> Unit,
     onFindGame: () -> Unit,
@@ -31,53 +27,118 @@ fun HomeScreen(
     onProfile: (() -> Unit)?,
     onSettings: (() -> Unit)?
 ) {
-    // TODO: Replace with your real UI. For now, just show buttons in a Column.
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(
+    val gradientBg = Brush.verticalGradient(listOf(Slate900, Slate800))
+    val cardColor = Slate800.copy(alpha = 0.6f)
+
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(gradientBg)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .shadow(16.dp, RoundedCornerShape(16.dp)),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Slate800),
+                border = BorderStroke(1.dp, Slate600),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Gradient Title
+                    Text(
+                        text = "Stock Ticker",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Indigo500, Fuchsia500, Pink500)
+                            )
+                        )
+                    )
+
+                    Text(
+                        text = "Welcome, $username",
+                        color = Slate400,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+
+                    // Buttons
+                    StyledButton("Create Game", onClick = onCreateGame)
+                    StyledButton("Join Game by ID", onClick = onJoinGame)
+                    StyledButton("Find Public Games", onClick = onFindGame)
+
+                    if (!lastGameId.isNullOrBlank() && onRejoinGame != null) {
+                        StyledButton("Rejoin My Game") {
+                            onRejoinGame(lastGameId)
+                        }
+                    }
+
+                    if (onProfile != null || onSettings != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            onProfile?.let {
+                                StyledButton(
+                                    text = "Profile",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = it
+                                )
+                            }
+                            onSettings?.let {
+                                StyledButton(
+                                    text = "Settings",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = it
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StyledButton(
+    text: String,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    enabled: Boolean = true,
+    onClick: () -> Unit = {}
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(50.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            disabledContainerColor = Slate700,
+            disabledContentColor = Slate300
+        ),
+        contentPadding = PaddingValues()
+    ) {
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+                .background(
+                    brush = Brush.horizontalGradient(listOf(Emerald500, Emerald600)),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Text("Home Screen", style = MaterialTheme.typography.headlineMedium)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("User: $username", style = MaterialTheme.typography.bodyLarge)
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(onClick = onCreateGame, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Text("Create Game")
-            }
-            Button(onClick = onJoinGame, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Text("Join Game by ID")
-            }
-            Button(onClick = onFindGame, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Text("Find Public Games")
-            }
-
-            if (onRejoinGame != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { onRejoinGame("SOME_GAME_ID") }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Rejoin My Game")
-                }
-            }
-
-            if (onProfile != null || onSettings != null) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Row {
-                    if (onProfile != null) {
-                        Button(onClick = { onProfile() }, modifier = Modifier.weight(1f)) {
-                            Text("Profile")
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    if (onSettings != null) {
-                        Button(onClick = { onSettings() }, modifier = Modifier.weight(1f)) {
-                            Text("Settings")
-                        }
-                    }
-                }
-            }
+            Text(text = text, color = Color.White, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

@@ -89,7 +89,11 @@ fun GameListScreen(
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(24.dp)) {
+        Column(Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .navigationBarsPadding()
+        ) {
             Text("Join a Public Game", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(16.dp))
 

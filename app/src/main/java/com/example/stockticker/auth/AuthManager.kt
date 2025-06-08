@@ -55,6 +55,18 @@ object AuthManager {
         val suffix = UUID.randomUUID().toString().take(4)
         return "Guest$suffix"
     }
+
+    fun setLastGameId(gameId: String) {
+        prefs.edit().putString("last_game_id", gameId).apply()
+    }
+
+    fun getLastGameId(): String? {
+        return prefs.getString("last_game_id", null)
+    }
+
+    fun clearLastGameId() {
+        prefs.edit().remove("last_game_id").apply()
+    }
 }
 
 data class UserIdentity(

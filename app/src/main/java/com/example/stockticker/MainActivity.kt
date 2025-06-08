@@ -4,6 +4,9 @@ package com.example.stockticker
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import com.example.stockticker.auth.AuthManager
 import com.example.stockticker.network.SocketManager
 import com.example.stockticker.ui.StockTickerApp
@@ -16,7 +19,15 @@ class MainActivity : ComponentActivity() {
         SocketManager.initializeSocket()
         setContent {
             StockTickerTheme {
-                StockTickerApp()
+                val appKey = remember { mutableStateOf(0) }
+
+                key(appKey.value) {
+                    StockTickerApp(
+                        restartApp = {
+                            appKey.value += 1
+                        }
+                    )
+                }
             }
         }
     }
