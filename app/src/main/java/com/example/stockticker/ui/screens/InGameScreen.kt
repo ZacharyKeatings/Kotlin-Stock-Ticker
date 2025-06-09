@@ -1,61 +1,69 @@
-// InGameScreen.kt
 package com.example.stockticker.ui.screens
 
 import android.util.Log
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.stockticker.network.SocketManager
-import com.example.stockticker.ui.components.ingame.*
+import com.example.stockticker.ui.components.ingame.GameHeader
+import com.example.stockticker.ui.components.ingame.PlayerStats
+import com.example.stockticker.ui.components.ingame.StockActionDialog
+import com.example.stockticker.ui.components.ingame.StockBoard
 import com.example.stockticker.viewmodel.GameViewModel
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun InGameScreen(
-    gameId       : String,
-    username     : String?,
-    token        : String?,
-    gameVm       : GameViewModel,
-    onToast      : (String) -> Unit,
+    gameId        : String,
+    username      : String?,
+    token         : String?,
+    gameVm        : GameViewModel,
+    onToast       : (String) -> Unit,
     onGameComplete: () -> Unit,
-    onReturnHome : () -> Unit
+    onReturnHome  : () -> Unit
 ) {
-    val socket = SocketManager.getSocket()
+    val socket   = SocketManager.getSocket()
     val socketId = socket.id()
-    // 1) Observe the ViewModel’s state (full game JSON, lastRoll, toast, etc.)
-    val uiState by gameVm.state.collectAsState()
-    val gameJson = uiState.game
 
-    val lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current
+    // Observe game state
+    val uiState  by gameVm.state.collectAsState()
+    val gameJson = uiState.game
+    if (gameJson == null) {
+        LoadingState()
+        return
+    }
+
+    // Rejoin on resume
+    val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                // If we’re already in a game, fire the rejoin
-                if (username != null) {
-                    Log.d("GameVM", "👋 App resumed, rejoining game $gameId as $username")
-                    gameVm.rejoinGame(gameId, username, token)
-                }
+            if (event == Lifecycle.Event.ON_RESUME && username != null) {
+                Log.d("GameVM", "App resumed: rejoining $gameId as $username")
+                gameVm.rejoinGame(gameId, username, token)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 2) If there's a one‐time toast, show it then clear it
+    // One‐time toast
     uiState.toastMessage?.let { msg ->
         LaunchedEffect(msg) {
             onToast(msg)
@@ -63,236 +71,272 @@ fun InGameScreen(
         }
     }
 
-    // 3) While waiting for the first "game:update", show a loading spinner
-    if (gameJson == null) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(Modifier.height(8.dp))
-                Text("Loading game…", style = MaterialTheme.typography.bodyLarge)
-            }
-        }
-        return
-    }
+    // Parse common fields
+    val round        = gameJson.optInt("round", 1)
+    val maxRounds    = gameJson.optInt("maxRounds", 1)
+    val currentPid   = gameJson.optString("currentTurnPlayerId")
+    val status       = gameJson.optString("status", "unknown").lowercase().trim()
+    val stocksJson   = gameJson.optJSONObject("stocks") ?: JSONObject()
+    val playersArray = gameJson.optJSONArray("players") ?: JSONArray()
+    val historyArray = gameJson.optJSONArray("history") ?: JSONArray()
 
-    // 4) Pull out the fields we need from gameJson
-    val round           = gameJson.optInt("round", 1)
-    val maxRounds       = gameJson.optInt("maxRounds", 1)
-    val currentPid      = gameJson.optString("currentTurnPlayerId")
-    val rawStatus       = gameJson.optString("status", "unknown")
-    val status          = rawStatus.trim().lowercase()      // normalize
-    val stocksJson      = gameJson.optJSONObject("stocks") ?: JSONObject()
-    val playersArray    = gameJson.optJSONArray("players")  ?: return
-
-    val isInitialBuy = (status == "initial-buy")
-    val isActive     = (status == "active")
-
-    // 5) Find this client’s player object, so we can compute hasMoney / hasAnyStock
+    // Find my player object
     val localPlayerJson = (0 until playersArray.length())
         .map { playersArray.getJSONObject(it) }
-        .find { it.optString("id") == socketId }
+        .firstOrNull { it.optString("id") == socketId }
 
-    val isMyTurn     = localPlayerJson != null && (localPlayerJson.optString("id") == socketId)
+    val isMyTurn  = localPlayerJson?.optString("id") == socketId
     val hasRolled = localPlayerJson?.optBoolean("hasRolled", false) ?: false
+    val hasMoney  = (localPlayerJson?.optDouble("cash", 0.0) ?: 0.0) > 0.0
+    val hasStock  = localPlayerJson
+        ?.optJSONObject("portfolio")
+        ?.let { port ->
+            port.keys().asSequence().any { key -> port.optInt(key, 0) > 0 }
+        } ?: false
 
-    val availableCash = localPlayerJson?.optDouble("cash", 0.0) ?: 0.0
-    val portfolioJson = localPlayerJson?.optJSONObject("portfolio") ?: JSONObject()
-    val hasAnyStock = portfolioJson.keys()
-        .asSequence()
-        .any { key -> portfolioJson.optInt(key, 0) > 0 }
-    val hasMoney = (availableCash > 0.0)
-
-    // 6) Figure out whose turn it is (their username)
     val currentPlayerName = (0 until playersArray.length())
         .map { playersArray.getJSONObject(it) }
-        .find { it.optString("id") == currentPid }
+        .firstOrNull { it.optString("id") == currentPid }
         ?.optString("username")
 
-    // 7) Local "hasRolled" flag:
-    //    - We set hasRolled = true as soon as the user taps “Roll Dice.”
-    //    - When the server emits “game:clearRoll” (i.e. uiState.lastRoll == null), reset hasRolled = false.
-//    var hasRolled by remember { mutableStateOf(false) }
-
-//    LaunchedEffect(uiState.lastRoll) {
-//        if (uiState.lastRoll == null) {
-//            hasRolled = false
-//        }
-//    }
-
-    // 7.b) ALSO, whenever the round or the current player changes, and it's now my new turn,
-    //       reset hasRolled = false. This covers round‐boundary cases.
-//    LaunchedEffect(round, currentPid) {
-//        if (isMyTurn) {
-//            hasRolled = false
-//        }
-//    }
-
-    // 8) Local state for the Buy/Sell dialog
     var actionMode    by remember { mutableStateOf<String?>(null) }
     var selectedStock by remember { mutableStateOf<String?>(null) }
     var quantity      by remember { mutableIntStateOf(0) }
 
-    // 9) We read stockChanges & priceHistory directly out of the ViewModel's state
-    val stockChanges = uiState.stockChanges
-    val priceHistory = uiState.priceHistory
-
-    // 10) If the game transitions to "complete", immediately navigate home
+    // Navigate to game over when complete
     LaunchedEffect(status) {
-        if (status == "complete") {
-            onGameComplete()
-        }
+        if (status == "complete") onGameComplete()
     }
 
-    // 11) Now build a Scaffold so that the bottom‐bar does not overlap the scrollable content
+    // Tabs
+    val tabs        = listOf("Market", "Players", "History")
+    var selectedTab by remember { mutableStateOf(0) }
+
+    // Pager state
+    val pagerState      = rememberPagerState(initialPage = 0, pageCount = { tabs.size })
+    val coroutineScope  = rememberCoroutineScope()
+
+    // Keep selectedTab in sync with pager
+    LaunchedEffect(pagerState.currentPage) {
+        selectedTab = pagerState.currentPage
+    }
+
+    val lastRoll = uiState.lastRoll
+    val rollText = lastRoll?.let {
+        val stock  = it.optString("stock", "").uppercase()
+        val action = it.optString("action", "").uppercase()
+        val amount = it.optInt("amount", 0)
+        "🎲 Rolled: $stock $action $amount"
+    }
+
     Scaffold(
-        bottomBar = {
-            // A column for two rows of buttons (2×2 grid)
+        topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(8.dp)
+                    .statusBarsPadding()
             ) {
-                // ─ Top row: 🎲 Roll Dice  |  🟢 Buy Stock
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Roll Dice (top‐left)
-                    Button(
-                        onClick = {
-                            gameVm.handleRoll(gameId)
-                        },
-                        enabled = isMyTurn && !hasRolled && isActive,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp)
-                    ) {
-                        Text("🎲 Roll Dice")
-                    }
-
-                    // Buy Stock (top‐right)
-                    Button(
-                        onClick = { actionMode = "buy" },
-                        enabled = isMyTurn && (isInitialBuy || (isActive && hasRolled)) && hasMoney,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp)
-                    ) {
-                        Text("🟢 Buy Stock")
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                // ─ Bottom row: 🔚 End Turn  |  🔴 Sell Stock
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // End Turn (bottom‐left)
-                    Button(
-                        onClick = { gameVm.endTurn(gameId) },
-                        enabled = isMyTurn && (isInitialBuy || (isActive && hasRolled)),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp)
-                    ) {
-                        Text("🔚 End Turn")
-                    }
-
-                    // Sell Stock (bottom‐right)
-                    Button(
-                        onClick = { actionMode = "sell" },
-                        enabled = isMyTurn && (isInitialBuy || (isActive && hasRolled)) && hasAnyStock,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp)
-                    ) {
-                        Text("🔴 Sell Stock")
-                    }
-                }
-            }
-        }
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // 12.A) Game Header
-            item {
+                // Game header
                 GameHeader(
-                    round = round,
-                    maxRounds = maxRounds,
+                    round             = round,
+                    maxRounds         = maxRounds,
                     currentPlayerName = currentPlayerName,
-                    status = status
+                    status            = status
                 )
-            }
+                // Tabs row
+                TabRow(selectedTabIndex = selectedTab) {
+                    tabs.forEachIndexed { index, title ->
+                        Tab(
+                            text     = { Text(title) },
+                            selected = selectedTab == index,
+                            onClick  = {
+                                // animate pager and update state
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
+                            }
+                        )
+                    }
+                }
 
-            // 12.B) StockBoard (2×3 grid)
-            item {
-                StockBoard(
-                    stocks = stocksJson,
-                    stockChanges = stockChanges,
-                    priceHistory = priceHistory
-                )
-            }
-
-            // 12.C) Player Stats
-            item {
-                PlayerStats(
-                    players = playersArray,
-                    currentTurnPlayerId = currentPid,
-                    stocks = stocksJson
-                )
-            }
-
-            // 12.D) “Last Roll” Banner (if any)
-            item {
-                uiState.lastRoll?.let { rollJson ->
-                    val stockSymbol = rollJson.optString("stock", "").uppercase()
-                    val action      = rollJson.optString("action", "").uppercase()
-                    val amount      = rollJson.optInt("amount", 0)
-
-                    Text(
-                        text = "🎲 Rolled: $stockSymbol $action $amount",
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.primary
-                        ),
+                if (rollText != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        tonalElevation = 2.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = rollText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
+                if (actionMode != null) {
+                    StockActionDialog(
+                        game             = gameJson,
+                        visible          = true,
+                        onDismiss        = {
+                            actionMode    = null
+                            selectedStock = null
+                            quantity      = 0
+                        },
+                        mode             = actionMode,
+                        selectedStock    = selectedStock,
+                        setSelectedStock = { selectedStock = it },
+                        quantity         = quantity,
+                        setQuantity      = { quantity = it },
+                        gameVm           = gameVm,
+                        gameId           = gameId,
+                        localPlayer      = localPlayerJson
                     )
                 }
             }
-        }
-
-        // 13) Show the Buy/Sell dialog when actionMode != null
-        if (actionMode != null) {
-            StockActionDialog(
-                game            = gameJson,
-                visible         = true,
-                onDismiss       = {
-                    actionMode    = null
-                    selectedStock = null
-                    quantity      = 0
-                },
-                mode            = actionMode,
-                selectedStock   = selectedStock,
-                setSelectedStock = { selectedStock = it },
-                quantity        = quantity,
-                setQuantity     = { quantity = it },
-                gameVm          = gameVm,
-                gameId          = gameId,
-                localPlayer     = localPlayerJson
+        },
+        bottomBar = {
+            InGameActionBar(
+                isMyTurn  = isMyTurn,
+                isActive  = status == "active",
+                isInitial = status == "initial-buy",
+                hasRolled = hasRolled,
+                hasMoney  = hasMoney,
+                hasStock  = hasStock,
+                onRoll    = { gameVm.handleRoll(gameId) },
+                onBuy     = { actionMode = "buy" },
+                onSell    = { actionMode = "sell" },
+                onEnd     = { gameVm.endTurn(gameId) }
             )
+        }
+    ) { innerPadding ->
+        // Wrap the three pages in a swipeable pager
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+        ) { page ->
+            when (page) {
+                // MARKET
+                0 -> StockBoard(
+                    stocks       = stocksJson,
+                    stockChanges = uiState.stockChanges,
+                    priceHistory = uiState.priceHistory,
+                    modifier     = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                )
+                // PLAYERS
+                1 -> PlayerStats(
+                    players             = playersArray,
+                    currentTurnPlayerId = currentPid,
+                    stocks              = stocksJson,
+                    modifier            = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                )
+                // HISTORY
+                2 -> ActionHistory(historyArray)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingState() {
+    Box(
+        Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator()
+        Spacer(Modifier.height(8.dp))
+        Text("Loading game…", style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun InGameActionBar(
+    isMyTurn  : Boolean,
+    isActive  : Boolean,
+    isInitial : Boolean,
+    hasRolled : Boolean,
+    hasMoney  : Boolean,
+    hasStock  : Boolean,
+    onRoll    : () -> Unit,
+    onBuy     : () -> Unit,
+    onSell    : () -> Unit,
+    onEnd     : () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(8.dp)
+    ) {
+        // Top row: Roll / Buy
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onRoll,
+                enabled = isMyTurn && !hasRolled && isActive,
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("🎲 Roll Dice")
+            }
+            Button(
+                onClick = onBuy,
+                enabled = isMyTurn && (isInitial || (isActive && hasRolled)) && hasMoney,
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("🟢 Buy Stock")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        // Bottom row: End / Sell
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onEnd,
+                enabled = isMyTurn && (isInitial || (isActive && hasRolled)),
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("🔚 End Turn")
+            }
+            Button(
+                onClick = onSell,
+                enabled = isMyTurn && (isInitial || (isActive && hasRolled)) && hasStock,
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("🔴 Sell Stock")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionHistory(history: JSONArray?) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        Text("Action History", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(8.dp))
+        if (history == null || history.length()==0) {
+            Text("No actions yet.", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            for (i in 0 until history.length()) {
+                Text("• ${history.getString(i)}", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(4.dp))
+            }
         }
     }
 }

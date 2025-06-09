@@ -24,7 +24,8 @@ import org.json.JSONObject
 fun StockBoard(
     stocks: JSONObject,
     stockChanges: Map<String, String>,
-    priceHistory: Map<String, List<Double>>
+    priceHistory: Map<String, List<Double>>,
+    modifier: Modifier = Modifier
 ) {
     Column(
         modifier = Modifier
@@ -43,7 +44,7 @@ fun StockBoard(
         }
 
         // Fixed height: 3 rows × 140.dp each, plus 2 gaps of 8.dp between rows
-        val gridHeight = ((3 * 100).dp) + ((2 * 8).dp)
+        val gridHeight = ((3 * 140).dp) + ((2 * 8).dp)
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -98,7 +99,7 @@ fun StockCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(100.dp), // fixed height to give room for top + bottom sections
+            .height(140.dp), // fixed height to give room for top + bottom sections
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)

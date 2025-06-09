@@ -30,7 +30,8 @@ import org.json.JSONObject
 fun PlayerStats(
     players: JSONArray,
     currentTurnPlayerId: String,
-    stocks: JSONObject
+    stocks: JSONObject,
+    modifier: Modifier = Modifier
 ) {
     Column(
         modifier = Modifier
