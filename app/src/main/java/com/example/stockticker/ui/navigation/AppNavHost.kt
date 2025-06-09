@@ -183,7 +183,6 @@ fun AppNavHost(
             val gameId = backStack.arguments!!.getString("gameId")!!
             InGameScreen(
                 gameId       = gameId,
-                socketId     = socket.id(),
                 username     = username,
                 token        = if (user.type == "guest") null else token,
                 gameVm       = gameVm,

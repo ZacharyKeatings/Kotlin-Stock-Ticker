@@ -1,6 +1,7 @@
 // InGameScreen.kt
 package com.example.stockticker.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,6 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.stockticker.network.SocketManager
 import com.example.stockticker.ui.components.ingame.*
 import com.example.stockticker.viewmodel.GameViewModel
@@ -20,7 +25,6 @@ import org.json.JSONObject
 @Composable
 fun InGameScreen(
     gameId       : String,
-    socketId     : String,
     username     : String?,
     token        : String?,
     gameVm       : GameViewModel,
@@ -28,9 +32,28 @@ fun InGameScreen(
     onGameComplete: () -> Unit,
     onReturnHome : () -> Unit
 ) {
+    val socket = SocketManager.getSocket()
+    val socketId = socket.id()
     // 1) Observe the ViewModel’s state (full game JSON, lastRoll, toast, etc.)
     val uiState by gameVm.state.collectAsState()
     val gameJson = uiState.game
+
+    val lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // If we’re already in a game, fire the rejoin
+                if (username != null) {
+                    Log.d("GameVM", "👋 App resumed, rejoining game $gameId as $username")
+                    gameVm.rejoinGame(gameId, username, token)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     // 2) If there's a one‐time toast, show it then clear it
     uiState.toastMessage?.let { msg ->
@@ -66,12 +89,14 @@ fun InGameScreen(
 
     val isInitialBuy = (status == "initial-buy")
     val isActive     = (status == "active")
-    val isMyTurn     = (currentPid == socketId)
 
     // 5) Find this client’s player object, so we can compute hasMoney / hasAnyStock
     val localPlayerJson = (0 until playersArray.length())
         .map { playersArray.getJSONObject(it) }
         .find { it.optString("id") == socketId }
+
+    val isMyTurn     = localPlayerJson != null && (localPlayerJson.optString("id") == socketId)
+    val hasRolled = localPlayerJson?.optBoolean("hasRolled", false) ?: false
 
     val availableCash = localPlayerJson?.optDouble("cash", 0.0) ?: 0.0
     val portfolioJson = localPlayerJson?.optJSONObject("portfolio") ?: JSONObject()
@@ -89,21 +114,21 @@ fun InGameScreen(
     // 7) Local "hasRolled" flag:
     //    - We set hasRolled = true as soon as the user taps “Roll Dice.”
     //    - When the server emits “game:clearRoll” (i.e. uiState.lastRoll == null), reset hasRolled = false.
-    var hasRolled by remember { mutableStateOf(false) }
+//    var hasRolled by remember { mutableStateOf(false) }
 
-    LaunchedEffect(uiState.lastRoll) {
-        if (uiState.lastRoll == null) {
-            hasRolled = false
-        }
-    }
+//    LaunchedEffect(uiState.lastRoll) {
+//        if (uiState.lastRoll == null) {
+//            hasRolled = false
+//        }
+//    }
 
     // 7.b) ALSO, whenever the round or the current player changes, and it's now my new turn,
     //       reset hasRolled = false. This covers round‐boundary cases.
-    LaunchedEffect(round, currentPid) {
-        if (isMyTurn) {
-            hasRolled = false
-        }
-    }
+//    LaunchedEffect(round, currentPid) {
+//        if (isMyTurn) {
+//            hasRolled = false
+//        }
+//    }
 
     // 8) Local state for the Buy/Sell dialog
     var actionMode    by remember { mutableStateOf<String?>(null) }
@@ -141,7 +166,6 @@ fun InGameScreen(
                     Button(
                         onClick = {
                             gameVm.handleRoll(gameId)
-                            hasRolled = true
                         },
                         enabled = isMyTurn && !hasRolled && isActive,
                         modifier = Modifier
