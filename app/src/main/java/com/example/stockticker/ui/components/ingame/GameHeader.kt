@@ -12,7 +12,6 @@ fun GameHeader(
     round: Int,
     maxRounds: Int,
     currentPlayerName: String?,
-    status: String
 ) {
     Column(
         modifier = Modifier
@@ -29,16 +28,9 @@ fun GameHeader(
 
         currentPlayerName?.let {
             Text(
-                text = "🎯 Current Turn: $it",
+                text = "Current Player: $it",
                 style = MaterialTheme.typography.bodyLarge
             )
         }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Game Status: ${status.replaceFirstChar { it.uppercase() }}",
-            style = MaterialTheme.typography.labelMedium
-        )
     }
 }

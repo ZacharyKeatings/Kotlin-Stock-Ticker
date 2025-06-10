@@ -64,7 +64,15 @@ class GameViewModel : ViewModel() {
 
         // ─── Listen for “game:diceRolled” ───────────────────────────────
         socket.on("game:diceRolled") { args ->
-            val rollJson = args.firstOrNull() as? JSONObject ?: return@on
+            val rawPayload = args.firstOrNull() ?: return@on
+
+            // Handle both JSONObject (ACK) and Map<String, Any> (server emit)
+            val rollJson = when (rawPayload) {
+                is JSONObject -> rawPayload
+                is Map<*, *>  -> JSONObject(rawPayload)
+                else           -> return@on
+            }
+
             handleDiceRolled(rollJson)
         }
 
@@ -80,11 +88,12 @@ class GameViewModel : ViewModel() {
         }
 
         // ─── Listen for “game:clearRoll” ────────────────────────────────
-        socket.on("game:clearRoll") {
-            _state.update { old ->
-                old.copy(lastRoll = null)
-            }
-        }
+//        socket.on("game:clearRoll") {
+//            viewModelScope.launch {
+//                delay(300)  // give Compose a frame or two to render the rollText
+//                _state.update { old -> old.copy(lastRoll = null) }
+//            }
+//        }
 
         // ─── Listen for “game:countdown” and “game:countdownCancelled” ─
         socket.on("game:countdown") { args ->
@@ -334,7 +343,7 @@ class GameViewModel : ViewModel() {
 //        socket.off("game:update")
         socket.off("game:diceRolled")
         socket.off("game:toast")
-        socket.off("game:clearRoll")
+//        socket.off("game:clearRoll")
         socket.off("game:countdown")
         socket.off("game:countdownCancelled")
         // (If you ever listen for "game:finalResults", turn that off too.)
@@ -371,7 +380,7 @@ class GameViewModel : ViewModel() {
         socket.off("game:update")
         socket.off("game:diceRolled")
         socket.off("game:toast")
-        socket.off("game:clearRoll")
+//        socket.off("game:clearRoll")
         socket.off("game:countdown")
         socket.off("game:countdownCancelled")
         // socket.off("game:finalResults")

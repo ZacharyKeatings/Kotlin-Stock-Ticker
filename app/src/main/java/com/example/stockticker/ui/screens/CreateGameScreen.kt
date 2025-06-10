@@ -30,7 +30,11 @@ fun CreateGameScreen(
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val cardColor = Slate800.copy(alpha = 0.6f)
+    val setMinPlayers= 2
+    val setMaxPlayers= 8
+    val setMinRounds = 1
+    val setMaxRounds = 100
+    val setMinAI     = 0
 
     Surface(
         modifier = Modifier
@@ -59,12 +63,12 @@ fun CreateGameScreen(
                         Slider(
                             value = maxPlayers.toFloat(),
                             onValueChange = {
-                                val newValue = it.toInt().coerceIn(2, 8)
+                                val newValue = it.toInt().coerceIn(setMinPlayers, setMaxPlayers)
                                 maxPlayers = newValue
                                 if (aiCount >= newValue) aiCount = newValue - 1
                             },
-                            valueRange = 2f..8f,
-                            steps = 6,
+                            valueRange = setMinPlayers.toFloat()..setMaxPlayers.toFloat(),
+                            steps = setMaxPlayers-setMinPlayers,
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
                                 thumbColor = Emerald500,
@@ -78,9 +82,9 @@ fun CreateGameScreen(
                         Slider(
                             value = aiCount.toFloat(),
                             onValueChange = {
-                                aiCount = it.toInt().coerceIn(0, maxPlayers - 1)
+                                aiCount = it.toInt().coerceIn(setMinAI, maxPlayers - 1)
                             },
-                            valueRange = 0f..(maxPlayers - 1).toFloat(),
+                            valueRange = setMinAI.toFloat()..(maxPlayers - 1).toFloat(),
                             steps = (maxPlayers - 1).coerceAtLeast(1) - 1,
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
@@ -95,10 +99,10 @@ fun CreateGameScreen(
                         Slider(
                             value = rounds.toFloat(),
                             onValueChange = {
-                                rounds = it.toInt().coerceIn(1, 50)
+                                rounds = it.toInt().coerceIn(setMinRounds, setMaxRounds)
                             },
-                            valueRange = 1f..50f,
-                            steps = 49,
+                            valueRange = setMinRounds.toFloat()..setMaxRounds.toFloat(),
+                            steps = setMaxRounds - setMinRounds,
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
                                 thumbColor = Indigo500,

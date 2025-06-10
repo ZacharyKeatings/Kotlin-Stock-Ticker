@@ -1,6 +1,5 @@
 package com.example.stockticker.ui.components.ingame
 
-
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -8,6 +7,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -23,9 +24,6 @@ import com.example.stockticker.ui.theme.Emerald400
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * A PlayerStats panel that shows each player’s name, cash, and a 2-column grid of their non-zero holdings.
- */
 @Composable
 fun PlayerStats(
     players: JSONArray,
@@ -33,60 +31,58 @@ fun PlayerStats(
     stocks: JSONObject,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp)
+    // Turn the JSONArray into a Kotlin List<JSONObject> for easy iteration
+    val playerList = remember(players) {
+        List(players.length()) { idx -> players.getJSONObject(idx) }
+    }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = "Player Stats",
-            style = MaterialTheme.typography.titleLarge
-        )
+        // Header
+        item {
+            Text(
+                text = "Player Stats",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
 
-        Spacer(Modifier.height(8.dp))
-
-        // For each player...
-        for (i in 0 until players.length()) {
-            val playerObj = players.getJSONObject(i)
-            val playerId = playerObj.optString("id")
-            val username = playerObj.optString("username")
-            val cash = playerObj.optDouble("cash", 0.0)
-            val isCurrent = (playerId == currentTurnPlayerId)
+        // One item per player
+        items(playerList) { playerObj ->
+            val playerId  = playerObj.optString("id")
+            val username  = playerObj.optString("username")
+            val cash      = playerObj.optDouble("cash", 0.0)
+            val isCurrent = playerId == currentTurnPlayerId
             val portfolio = playerObj.optJSONObject("portfolio") ?: JSONObject()
 
-            // Collect only those holdings where quantity > 0
-            val nonZeroHoldings: List<Pair<String, Int>> = stocks.keys().asSequence()
+            // Build a list of (symbol, qty) where qty > 0
+            val nonZeroHoldings = stocks.keys().asSequence()
                 .map { symbol -> symbol to (portfolio.optInt(symbol, 0)) }
                 .filter { it.second > 0 }
                 .toList()
 
-            // Split holdings into rows of 2
-            val rowsOfHoldings = remember(nonZeroHoldings) {
-                nonZeroHoldings.chunked(2)
-            }
-
-            // Choose a slightly different container color if this is the current player
-            val cardColor = if (isCurrent) {
+            // Card background varies if it's the current player
+            val cardColor = if (isCurrent)
                 MaterialTheme.colorScheme.secondaryContainer
-            } else {
+            else
                 MaterialTheme.colorScheme.surfaceVariant
-            }
 
             ElevatedCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = cardColor)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    // ─── Top row: “▶ Username” (if current) and Cash (right-aligned) ───────────────
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isCurrent) {
-                            BlinkingDot()
-                            Spacer(modifier = Modifier.width(8.dp))
+                            BlinkingDot(color = Emerald400)
+                            Spacer(Modifier.width(8.dp))
                         }
                         Text(
                             text = username,
@@ -95,14 +91,12 @@ fun PlayerStats(
                         )
                         Text(
                             text = "Cash: $${"%.2f".format(cash)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(start = 8.dp)
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
 
                     Spacer(Modifier.height(8.dp))
 
-                    // ─── If there are no holdings, say so ──────────────────────────────────────
                     if (nonZeroHoldings.isEmpty()) {
                         Text(
                             text = "No holdings",
@@ -110,41 +104,18 @@ fun PlayerStats(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        Text(
-                            text = "Holdings:",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(Modifier.height(4.dp))
-
-                        // ─── Two-column grid of holdings ─────────────────────────────────────────
-                        Column(
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            for (row in rowsOfHoldings) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    // First cell in this row
-                                    val (symbol0, qty0) = row[0]
-                                    Text(
-                                        text = "$symbol0: $qty0",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    // Second cell (if exists)
-                                    if (row.size > 1) {
-                                        val (symbol1, qty1) = row[1]
+                            // Show up to two holdings per row
+                            nonZeroHoldings.chunked(2).forEach { rowList ->
+                                Column(modifier = Modifier.weight(1f)) {
+                                    rowList.forEach { (symbol, qty) ->
                                         Text(
-                                            text = "$symbol1: $qty1",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.weight(1f)
+                                            text = "$symbol: $qty",
+                                            style = MaterialTheme.typography.bodySmall
                                         )
-                                    } else {
-                                        // empty placeholder so weights line up
-                                        Spacer(modifier = Modifier.weight(1f))
                                     }
                                 }
                             }
@@ -155,6 +126,7 @@ fun PlayerStats(
         }
     }
 }
+
 
 @Composable
 fun BlinkingDot(

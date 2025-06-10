@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 /**
  * A buy/sell modal dialog.
@@ -32,60 +33,38 @@ fun StockActionDialog(
     game: JSONObject,
     visible: Boolean,
     onDismiss: () -> Unit,
-    mode: String?,
+    mode: String?,                    // "buy" or "sell"
     selectedStock: String?,
     setSelectedStock: (String) -> Unit,
     quantity: Int,
     setQuantity: (Int) -> Unit,
     gameVm: GameViewModel,
     gameId: String,
-    localPlayer: JSONObject?
+    localPlayer: JSONObject?          // the local player's JSON (cash & portfolio)
 ) {
     if (!visible || mode == null) return
 
-    val stocksJson = game.optJSONObject("stocks") ?: return
-    val portfolio = localPlayer?.optJSONObject("portfolio") ?: JSONObject()
-    val availableCash = localPlayer?.optDouble("cash") ?: 0.0
+    // Read stocks, portfolio, cash
+    val stocksJson = game.optJSONObject("stocks") ?: JSONObject()
+    val playerPortfolio = localPlayer?.optJSONObject("portfolio") ?: JSONObject()
+    val playerCash = localPlayer?.optDouble("cash") ?: 0.0
 
-    // All possible stock names, sorted
-    val stockList = stocksJson.keys().asSequence().toList().sorted()
+    // Build the stock dropdown options
+    val allStockNames = stocksJson.keys().asSequence().toList().sorted()
 
-    // If buying: only those the player can afford
-    // If selling: only those with owned quantity > 0
-    val affordableStocks = stockList.filter { stock ->
-        val price = stocksJson.optJSONObject(stock)?.optDouble("price") ?: 1.0
-        mode == "sell" || price <= availableCash
+    val buyableStocks = allStockNames.filter { stock ->
+        val pricePerShare = stocksJson.optJSONObject(stock)
+            ?.optDouble("price") ?: 1.0
+        playerCash >= pricePerShare * 500
     }
-    val ownedStocks = stockList.filter { stock ->
-        portfolio.optInt(stock) > 0
+
+    val sellableStocks = allStockNames.filter { stock ->
+        playerPortfolio.optInt(stock) > 0
     }
-    val options = if (mode == "buy") affordableStocks else ownedStocks
+    val dropdownOptions = if (mode == "buy") buyableStocks else sellableStocks
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = {
-            val actionLabel = if (mode == "buy") "Buy" else "Sell"
-            Button(
-                onClick = {
-                    if (selectedStock != null && quantity > 0) {
-                        if (mode == "buy") {
-                            gameVm.buyStock(gameId, selectedStock, quantity)
-                        } else {
-                            gameVm.sellStock(gameId, selectedStock, quantity)
-                        }
-                    }
-                    onDismiss()
-                },
-                enabled = (selectedStock != null && quantity > 0)
-            ) {
-                Text(if (mode == "buy") "Confirm Purchase" else "Confirm Sale")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
         title = {
             Text(
                 text = if (mode == "buy") "Buy Stock" else "Sell Stock",
@@ -93,37 +72,88 @@ fun StockActionDialog(
             )
         },
         text = {
-            Column {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text("Select stock:")
                 Spacer(Modifier.height(8.dp))
                 DropdownMenuBox(
-                    items = options,
+                    items = dropdownOptions,
                     selected = selectedStock,
                     onItemSelected = setSelectedStock
                 )
                 Spacer(Modifier.height(16.dp))
 
-                val maxQty = if (mode == "buy") {
-                    val price = selectedStock
-                        ?.let { stocksJson.optJSONObject(it)?.optDouble("price") }
-                        ?: 1.0
-                    (availableCash / price).toInt()
+                if (selectedStock == null) {
+                    Text("Select a stock to continue.")
                 } else {
-                    selectedStock?.let { portfolio.optInt(it) } ?: 0
-                }
+                    val blockSize = 500
+                    val stockPrice = stocksJson.optJSONObject(selectedStock)
+                        ?.optDouble("price") ?: 1.0
+                    val maxBuyBlocks = ((playerCash / stockPrice) / blockSize).toInt()
+                    val maxSellBlocks = (playerPortfolio.optInt(selectedStock) / blockSize)
 
-                if (maxQty > 0) {
                     Text("Quantity: $quantity")
-                    Slider(
-                        value = quantity.toFloat(),
-                        onValueChange = { setQuantity(it.toInt()) },
-                        valueRange = 1f..maxQty.toFloat(),
-                        steps = maxQty - 1,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    Text("No eligible shares or cash to perform this action.")
+                    Spacer(Modifier.height(8.dp))
+
+                    if (mode == "buy") {
+                        if (maxBuyBlocks > 0) {
+                            val currentBuyBlock = (quantity / blockSize).coerceIn(0, maxBuyBlocks)
+                            Slider(
+                                value = currentBuyBlock.toFloat(),
+                                onValueChange = { newBlock ->
+                                    val newQty = (newBlock.roundToInt() * blockSize)
+                                        .coerceAtMost(maxBuyBlocks * blockSize)
+                                    setQuantity(newQty)
+                                },
+                                valueRange = 0f..maxBuyBlocks.toFloat(),
+                                steps = (maxBuyBlocks - 1).coerceAtLeast(0),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Text("Not enough cash for $blockSize shares.")
+                        }
+                    } else { // sell
+                        if (maxSellBlocks > 0) {
+                            val currentSellBlock = (quantity / blockSize).coerceIn(0, maxSellBlocks)
+                            Slider(
+                                value = currentSellBlock.toFloat(),
+                                onValueChange = { newBlock ->
+                                    val newQty = (newBlock.roundToInt() * blockSize)
+                                        .coerceAtMost(maxSellBlocks * blockSize)
+                                    setQuantity(newQty)
+                                },
+                                valueRange = 0f..maxSellBlocks.toFloat(),
+                                steps = (maxSellBlocks - 1).coerceAtLeast(0),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Text("You need at least $blockSize shares to sell.")
+                        }
+                    }
                 }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    selectedStock?.let { stock ->
+                        if (quantity > 0) {
+                            if (mode == "buy") {
+                                gameVm.buyStock(gameId, stock, quantity)
+                            } else {
+                                gameVm.sellStock(gameId, stock, quantity)
+                            }
+                        }
+                    }
+                    onDismiss()
+                },
+                enabled = selectedStock != null && quantity > 0
+            ) {
+                Text(if (mode == "buy") "Confirm Purchase" else "Confirm Sale")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )
