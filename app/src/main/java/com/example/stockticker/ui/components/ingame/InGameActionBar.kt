@@ -45,7 +45,7 @@ fun InGameActionBar(
         initialValue = 0.1f,
         targetValue  = 0.3f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800, easing = FastOutLinearInEasing),
+            animation = tween(durationMillis = 1800, easing = FastOutLinearInEasing),
             repeatMode = RepeatMode.Reverse
         )
     )

@@ -12,10 +12,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import io.github.dautovicharis.charts.LineChart
 import org.json.JSONObject
+import io.github.dautovicharis.charts.model.toChartDataSet
+import io.github.dautovicharis.charts.style.ChartViewDefaults
+import io.github.dautovicharis.charts.style.LineChartDefaults
 
 /**
  * Displays all stocks in a 2×3 grid (two columns, up to three rows).
@@ -44,7 +48,7 @@ fun StockBoard(
         }
 
         // Fixed height: 3 rows × 140.dp each, plus 2 gaps of 8.dp between rows
-        val gridHeight = ((3 * 140).dp) + ((2 * 8).dp)
+        val gridHeight = ((3 * 210).dp) + ((2 * 8).dp)
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -99,7 +103,7 @@ fun StockCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(140.dp), // fixed height to give room for top + bottom sections
+            .height(290.dp), // fixed height to give room for top + bottom sections
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -107,24 +111,24 @@ fun StockCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp)
+                .padding(2.dp)
         ) {
             // ─── Top Half: Name (left) and Price/Δ (right) ─────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(0.5f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Stock name, left‐aligned
                 Text(
                     text = name,
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).padding(4.dp)
                 )
 
                 Row(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).padding(4.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -143,8 +147,6 @@ fun StockCard(
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
-
             // ─── Bottom Half: Line Chart spanning full width ───────────────────
             Box(
                 modifier = Modifier
@@ -158,62 +160,66 @@ fun StockCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .fillMaxHeight()
-                        .padding(horizontal = 4.dp)
+                        .padding(horizontal = 0.dp)
                 )
             }
+//            Text(
+//                text = "History: " + history.joinToString(
+//                    prefix = "[", postfix = "]"
+//                ) { value -> "%.2f".format(value) },
+//                style    = MaterialTheme.typography.labelSmall,
+//                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .padding(4.dp)
+//            )
         }
     }
 }
 
-/**
- * A custom sparkline that:
- * 1. If data is empty, seeds [1.0, 1.0] so the line starts centered.
- * 2. Uses a fixed vertical range 0.0 → 2.0, so 1.0 sits exactly in the middle.
- */
 @Composable
 fun StockLineChart(
     data: List<Double>,
     lineColor: Color,
     modifier: Modifier = Modifier
 ) {
-    // 1) Build "actualData" according to your rules:
-    //    • If data is empty          ⇒ [1.0, 1.0]
-    //    • If data.size == 1         ⇒ [1.0, data[0]]
-    //    • Otherwise (size ≥ 2)      ⇒ data
-    val actualData: List<Double> = remember(data) {
+    // 1) Normalize and convert to Float
+    val baseSeries: List<Float> = remember(data) {
         when {
-            data.isEmpty()    -> listOf(1.0, 1.0)
-            data.size == 1    -> listOf(1.0, data[0])
-            else              -> data
+            data.isEmpty()  -> listOf(1.0f, 1.0f)
+            data.size == 1  -> listOf(1.0f, data[0].toFloat())
+            else            -> data.map(Double::toFloat)
         }
     }
 
-    Canvas(modifier = modifier) {
-        // Vertical range fixed from 0.0 → 2.0 so that 1.0 sits exactly in the middle
-        val minValue = 0.0
-        val maxValue = 2.0f
+    val floatData: List<Float> = remember(baseSeries) {
+        baseSeries + listOf(baseSeries.last())
+    }
 
-        // We know actualData.size >= 2 at this point
-        val pointCount = actualData.size
-        val stepX = size.width / (pointCount - 1).coerceAtLeast(1)
+    // 2) Build the ChartDataSet
+    val dataSet = floatData.toChartDataSet(
+        title   = "",
+        postfix = ""
+    )
 
-        // Map each price into an Offset(x, y)
-        val points: List<Offset> = actualData.mapIndexed { index, value ->
-            val x = index * stepX
-            // yRatio = (value - minValue) / (maxValue - minValue)
-            val yRatio = ((value - minValue) / (maxValue - minValue)).toFloat().coerceIn(0f, 1f)
-            val y = size.height * (1f - yRatio)
-            Offset(x, y)
-        }
+    // 3) Customize style:
+    val style = LineChartDefaults.style(
+        lineColor         = lineColor.toArgb().let { Color(it) },
+        // remove all point circles:
+        pointSize         = 0f,
+        pointVisible      = false,
+        bezier            = false
+    )
 
-        // Draw line segments between consecutive points
-        for (i in 0 until points.size - 1) {
-            drawLine(
-                color = lineColor,
-                start = points[i],
-                end = points[i + 1],
-                strokeWidth = 3f
-            )
-        }
+    // 4) Wrap in Box so you can size it exactly:
+    Box(
+        modifier = modifier.fillMaxWidth()
+            // enforce a minimum width & height in dp:
+//            .sizeIn(minWidth = 150.dp, minHeight = 80.dp)
+    ) {
+        LineChart(
+            dataSet = dataSet,
+            style   = style
+        )
     }
 }

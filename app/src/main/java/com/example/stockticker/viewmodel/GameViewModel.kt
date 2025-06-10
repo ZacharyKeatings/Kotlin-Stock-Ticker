@@ -55,10 +55,32 @@ class GameViewModel : ViewModel() {
         //   currentTurnPlayerId, status, history (last 30 entries)
         // }
         socket.on("game:update") { args ->
-            val payload = args.firstOrNull() as? JSONObject ?: return@on
+            val newPayload = args.firstOrNull() as? JSONObject ?: return@on
+
+            // Snapshot the old state
+            val oldState     = _state.value
+            val oldStocks    = oldState.game?.optJSONObject("stocks")
+            val newStocksObj = newPayload.optJSONObject("stocks")
+
+            // Rebuild priceHistory by appending the new prices
+            val updatedPriceHistory = mutableMapOf<String, List<Double>>()
+            newStocksObj?.keys()?.forEach { symbol ->
+                val newPrice = newStocksObj
+                    .optJSONObject(symbol)
+                    ?.optDouble("price", 1.0)
+                    ?: 1.0
+
+                val previousList = oldState.priceHistory[symbol].orEmpty()
+                updatedPriceHistory[symbol] =
+                    (previousList + newPrice).takeLast(50)
+            }
+
+            // Commit both the new game JSON and the rebuilt priceHistory together
             _state.update { old ->
-                // Replace the entire game JSON. UI can read stocks, players, status, etc.
-                old.copy(game = payload)
+                old.copy(
+                    game         = newPayload,
+                    priceHistory = old.priceHistory + updatedPriceHistory
+                )
             }
         }
 
@@ -136,22 +158,6 @@ class GameViewModel : ViewModel() {
         // 2) stockChanges
         _state.update { old ->
             old.copy(stockChanges = old.stockChanges + (stockSymbol to action))
-        }
-
-        // 3) priceHistory
-        //    We expect that _state.value.game already holds the latest game JSON,
-        //    which includes stocks: { Gold: { price: 1.10 }, … }.  If not, default to 1.0.
-        val currentGame = _state.value.game
-        val newPrice: Double = currentGame
-            ?.optJSONObject("stocks")
-            ?.optJSONObject(stockSymbol)
-            ?.optDouble("price", 1.0)
-            ?: 1.0
-
-        _state.update { old ->
-            val existingList = old.priceHistory[stockSymbol].orEmpty()
-            val updatedList = (existingList + newPrice).takeLast(8)
-            old.copy(priceHistory = old.priceHistory + (stockSymbol to updatedList))
         }
     }
 
