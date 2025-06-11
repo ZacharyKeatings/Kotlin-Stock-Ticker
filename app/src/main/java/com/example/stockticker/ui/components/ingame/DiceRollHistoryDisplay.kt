@@ -1,5 +1,9 @@
 package com.example.stockticker.ui.components.ingame
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.TextStyle
@@ -25,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 
 @Composable
 fun AutoResizedText(
@@ -58,23 +64,55 @@ fun AutoResizedText(
 fun DiceRollHistoryDisplay(
     historyArray: JSONArray
 ) {
-    // Pull last "Rolled X → Y → Z"
-    val last = (0 until historyArray.length())
+    // 1) Extract the last “Rolled X → Y → Z” string
+    val lastRollText: String? = (0 until historyArray.length())
         .map { historyArray.getJSONObject(it).getString("description") }
         .lastOrNull { it.startsWith("Rolled ") }
-        ?: return
 
-    val parts = last.removePrefix("Rolled ").split(" → ").map(String::trim)
+    if (lastRollText == null) return
+
+    // 2) Split into the three parts
+    val parts = lastRollText.removePrefix("Rolled ").split(" → ").map(String::trim)
     if (parts.size != 3) return
+    val action = parts[1].lowercase()
 
-    // Center the row in the middle of the screen
+    // 3) Flash state: toggles true on each new roll
+    var flash by remember { mutableStateOf(false) }
+    LaunchedEffect(lastRollText) {
+        flash = true
+        // stay green for 600ms
+        kotlinx.coroutines.delay(600)
+        flash = false
+    }
+    val flashColor = when (action) {
+        "up"       -> Color(0xFF22C55E)  // green
+        "down"     -> Color(0xFFEF4444)  // red
+        "dividend" -> Color(0xFFFACC15)  // yellow
+        else       -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    // 4) Animate border color between transparent and green
+    val borderColor by animateColorAsState(
+        targetValue = if (flash) flashColor else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(durationMillis = 500, easing = FastOutLinearInEasing)
+    )
+
+    val borderWidth by animateDpAsState(
+        targetValue = if (flash) 3.dp else 1.dp,
+        animationSpec = tween(500, easing = FastOutLinearInEasing)
+    )
+
+    // 5) Draw the row with that border
     Box(
-        modifier = Modifier.fillMaxWidth().padding(0.dp, 0.dp, 0.dp, 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+            .padding(vertical = 4.dp), // inner padding so the border isn’t tight
         contentAlignment = Alignment.Center
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment   = Alignment.CenterVertically
         ) {
             parts.forEach { part ->
                 Box(
@@ -85,15 +123,15 @@ fun DiceRollHistoryDisplay(
                             shape = RoundedCornerShape(8.dp)
                         )
                         .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            width = borderWidth,
+                            color = borderColor,
                             shape = RoundedCornerShape(8.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     AutoResizedText(
-                        text = part,
-                        style = MaterialTheme.typography.titleMedium,
+                        text     = part,
+                        style    = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(4.dp)
                     )
                 }

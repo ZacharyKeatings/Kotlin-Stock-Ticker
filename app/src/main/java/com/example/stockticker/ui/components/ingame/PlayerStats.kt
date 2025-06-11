@@ -1,28 +1,25 @@
 package com.example.stockticker.ui.components.ingame
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.stockticker.ui.theme.Emerald400
 import org.json.JSONArray
 import org.json.JSONObject
+
+private data class PurchaseLot(val qty: Int, val price: Double)
 
 @Composable
 fun PlayerStats(
@@ -31,9 +28,9 @@ fun PlayerStats(
     stocks: JSONObject,
     modifier: Modifier = Modifier
 ) {
-    // Turn the JSONArray into a Kotlin List<JSONObject> for easy iteration
+    // Convert JSONArray → List<JSONObject>
     val playerList = remember(players) {
-        List(players.length()) { idx -> players.getJSONObject(idx) }
+        List(players.length()) { players.getJSONObject(it) }
     }
 
     LazyColumn(
@@ -42,30 +39,34 @@ fun PlayerStats(
             .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Header
         item {
             Text(
-                text = "Player Stats",
+                "Player Stats",
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
 
-        // One item per player
         items(playerList) { playerObj ->
-            val playerId  = playerObj.optString("id")
-            val username  = playerObj.optString("username")
-            val cash      = playerObj.optDouble("cash", 0.0)
-            val isCurrent = playerId == currentTurnPlayerId
-            val portfolio = playerObj.optJSONObject("portfolio") ?: JSONObject()
+            val playerId   = playerObj.optString("id")
+            val username   = playerObj.optString("username")
+            val cash       = playerObj.optDouble("cash", 0.0)
+            val isCurrent  = playerId == currentTurnPlayerId
+            val portfolioJ = playerObj.optJSONObject("portfolio") ?: JSONObject()
 
-            // Build a list of (symbol, qty) where qty > 0
-            val nonZeroHoldings = stocks.keys().asSequence()
-                .map { symbol -> symbol to (portfolio.optInt(symbol, 0)) }
-                .filter { it.second > 0 }
+            // Build holdings: List of pairs (symbol, lotsList) where lotsList has qty>0
+            val holdings: List<Pair<String, List<PurchaseLot>>> = stocks.keys().asSequence()
+                .map { symbol ->
+                    val lotsJson = portfolioJ.optJSONArray(symbol) ?: JSONArray()
+                    val lots = List(lotsJson.length()) { i ->
+                        val o = lotsJson.getJSONObject(i)
+                        PurchaseLot(o.optInt("qty"), o.optDouble("price"))
+                    }
+                    symbol to lots
+                }
+                .filter { (_, lots) -> lots.any { it.qty > 0 } }
                 .toList()
 
-            // Card background varies if it's the current player
             val cardColor = if (isCurrent)
                 MaterialTheme.colorScheme.secondaryContainer
             else
@@ -85,35 +86,35 @@ fun PlayerStats(
                             Spacer(Modifier.width(8.dp))
                         }
                         Text(
-                            text = username,
+                            username,
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = "Cash: $${"%.2f".format(cash)}",
+                            "Cash: $${"%.2f".format(cash)}",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
 
                     Spacer(Modifier.height(8.dp))
 
-                    if (nonZeroHoldings.isEmpty()) {
+                    if (holdings.isEmpty()) {
                         Text(
-                            text = "No holdings",
+                            "No holdings",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Show up to two holdings per row
-                            nonZeroHoldings.chunked(2).forEach { rowList ->
-                                Column(modifier = Modifier.weight(1f)) {
-                                    rowList.forEach { (symbol, qty) ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            holdings.forEach { (symbol, lots) ->
+                                Column {
+                                    Text(
+                                        symbol,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                    )
+                                    lots.filter { it.qty > 0 }.forEach { lot ->
                                         Text(
-                                            text = "$symbol: $qty",
+                                            "   • ${lot.qty} @ $${"%.2f".format(lot.price)}",
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                     }
@@ -127,40 +128,33 @@ fun PlayerStats(
     }
 }
 
-
 @Composable
 fun BlinkingDot(
     color: Color = Emerald400,
-    size: Dp = 8.dp // matches w-2 h-2 in Tailwind (~8px)
+    size: Dp = 8.dp
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "ping")
-    val scale by infiniteTransition.animateFloat(
+    val transition = rememberInfiniteTransition()
+    val scale by transition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.6f,
+        targetValue  = 1.6f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1000),
+            animation = tween(1000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
-        ),
-        label = "scaleAnim"
+        )
     )
-    val alpha by infiniteTransition.animateFloat(
+    val alpha by transition.animateFloat(
         initialValue = 0.9f,
-        targetValue = 0f,
+        targetValue  = 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1000),
+            animation = tween(1000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
-        ),
-        label = "alphaAnim"
+        )
     )
 
     Box(
-        modifier = Modifier
+        Modifier
             .size(size)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                this.alpha = alpha
-            }
-            .background(color = color, shape = CircleShape)
+            .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
+            .background(color, shape = CircleShape)
     )
 }

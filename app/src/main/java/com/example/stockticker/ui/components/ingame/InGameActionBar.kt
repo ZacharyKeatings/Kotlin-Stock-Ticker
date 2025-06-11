@@ -32,7 +32,7 @@ fun InGameActionBar(
     isActive  : Boolean,
     isInitial : Boolean,
     hasRolled : Boolean,
-    canBuyBlock  : Boolean,
+    canBuyBlock: Boolean,
     hasStock  : Boolean,
     onRoll    : () -> Unit,
     onBuy     : () -> Unit,
