@@ -63,7 +63,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
     implementation("com.squareup.okio:okio:3.0.0")
+
     implementation("io.github.dautovicharis:charts-android:2.0.0")
+    implementation("com.himanshoe:charty:2.1.0-beta03.4")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

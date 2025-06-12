@@ -1,225 +1,172 @@
-// StockBoard.kt
 package com.example.stockticker.ui.components.ingame
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
-import io.github.dautovicharis.charts.LineChart
+import com.himanshoe.charty.common.ChartColor
+import com.himanshoe.charty.common.LabelConfig
+import com.himanshoe.charty.common.TargetConfig
+import com.himanshoe.charty.line.MultiLineChart
+import com.himanshoe.charty.line.config.InteractionTooltipConfig
+import com.himanshoe.charty.line.config.LineChartConfig
+import com.himanshoe.charty.line.config.LineChartColorConfig
+import com.himanshoe.charty.line.model.LineData
+import com.himanshoe.charty.line.model.MultiLineData
 import org.json.JSONObject
-import io.github.dautovicharis.charts.model.toChartDataSet
-import io.github.dautovicharis.charts.style.ChartViewDefaults
-import io.github.dautovicharis.charts.style.LineChartDefaults
 
-/**
- * Displays all stocks in a 2×3 grid (two columns, up to three rows).
- */
 @Composable
 fun StockBoard(
     stocks: JSONObject,
-    stockChanges: Map<String, String>,
     priceHistory: Map<String, List<Double>>,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp)
+    val symbols = remember(stocks) { stocks.keys().asSequence().toList().sorted() }
+    val palette = listOf(
+        Color(0xFF22C55E), // Bonds
+        Color(0xFFEF4444), // Gold
+        Color(0xFFFACC15), // Grain
+        Color(0xFF3B82F6), // Industrial
+        Color(0xFF8B5CF6), // Oil
+        Color(0xFFF472B6)  // Silver
+    )
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement   = Arrangement.spacedBy(12.dp),
+        contentPadding        = PaddingValues(0.dp),
+        modifier              = modifier.fillMaxWidth()
     ) {
-        Text(
-            "Stock Board",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        items(symbols) { symbol ->
+            val hist  = priceHistory[symbol].orEmpty()
+            val price = stocks
+                .optJSONObject(symbol)
+                ?.optDouble("price", 0.0)
+                ?: 0.0
+            val color = palette[symbols.indexOf(symbol) % palette.size]
 
-        // Gather all stock keys into a List<String>
-        val stockKeys = remember(stocks) {
-            stocks.keys().asSequence().toList().sorted()
+            StockLineCard(
+                symbol  = symbol,
+                price   = price,
+                history = hist,
+                color   = color
+            )
         }
-
-        // Fixed height: 3 rows × 140.dp each, plus 2 gaps of 8.dp between rows
-        val gridHeight = ((3 * 210).dp) + ((2 * 8).dp)
-
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(gridHeight),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = {
-                items(stockKeys) { key ->
-                    // For each stock symbol, create a StockCard
-                    val stockObj = stocks.optJSONObject(key) ?: return@items
-                    val price = stockObj.optDouble("price", 0.0)
-                    val change = stockChanges[key]
-                    val history = priceHistory[key] ?: emptyList()
-
-                    StockCard(
-                        name = key,
-                        price = price,
-                        change = change,
-                        history = history
-                    )
-                }
-            }
-        )
     }
 }
 
-/**
- * A single “card” for one stock. Divided into:
- *  ─ Top half:      [ Stock name (left)  |  Price & Δ (right) ]
- *  ─ Bottom half:   [   Line chart spanning full width   ]
- */
 @Composable
-fun StockCard(
-    name: String,
-    price: Double,
-    change: String?,
-    history: List<Double>
+private fun StockLineCard(
+    symbol  : String,
+    price   : Double,
+    history : List<Double>,
+    color   : Color
 ) {
-    // Calculate the delta text
-    val delta = if (history.size >= 2) {
-        val diff = history.last() - history[history.size - 2]
-        if (diff >= 0) "+%.2f".format(diff) else "%.2f".format(diff)
-    } else {
-        "--"
+    // 1) Build your real data series (≥2 points, padded)
+    val base = when {
+        history.isEmpty()  -> listOf(1f, 1f)
+        history.size == 1  -> listOf(1f, history[0].toFloat())
+        else               -> history.map(Double::toFloat)
+    }
+    val realFloats = base + base.last()
+    val realPoints = realFloats.mapIndexed { idx, y ->
+        LineData(xValue = idx.toFloat(), yValue = y)
     }
 
-    // Chart color: green if price >= 1.0, else red
-    val chartColor = if (price >= 1.0) Color(0xFF22C55E) else Color(0xFFEF4444)
+    // 2) Build invisible anchor series at y=0 and y=2
+    val zeroPoints = realFloats.indices.map { i ->
+        LineData(xValue = i.toFloat(), yValue = 0f)
+    }
+    val twoPoints = realFloats.indices.map { i ->
+        LineData(xValue = i.toFloat(), yValue = 2f)
+    }
+
+    // 3) Color configs
+    val baseColorConfig = LineChartColorConfig.default()
+    val realColorConfig = baseColorConfig.copy(
+        lineColor     = ChartColor.Solid(color),
+        lineFillColor = ChartColor.Solid(color.copy(alpha = 0.3f))
+    )
+    val invisibleConfig = baseColorConfig.copy(
+        lineColor     = ChartColor.Solid(Color.Transparent),
+        lineFillColor = ChartColor.Solid(Color.Transparent)
+    )
+
+    // 4) Pack into MultiLineData
+    val multiLineData = listOf(
+        MultiLineData(data = realPoints, colorConfig = realColorConfig),
+        MultiLineData(data = twoPoints,  colorConfig = invisibleConfig),
+        MultiLineData(data = zeroPoints, colorConfig = invisibleConfig)
+    )
+
+    val priceColor = if (price >= 1.0) Color(0xFF22C55E) else Color(0xFFEF4444)
 
     Card(
-        modifier = Modifier
+        modifier  = Modifier
             .fillMaxWidth()
-            .height(290.dp), // fixed height to give room for top + bottom sections
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            .height(150.dp),
+        shape     = RoundedCornerShape(12.dp),
+        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(2.dp)
-        ) {
-            // ─── Top Half: Name (left) and Price/Δ (right) ─────────────────────
+        Column(Modifier.padding(4.dp)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(0.5f),
+                modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Stock name, left‐aligned
                 Text(
-                    text = name,
+                    text     = symbol,
+                    style    = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text  = "$${"%.2f".format(price)}",
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f).padding(4.dp)
+                    color = priceColor
                 )
-
-                Row(
-                    modifier = Modifier.weight(1f).padding(4.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Delta on the left
-                    Text(
-                        text = delta,
-                        color = chartColor,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    // Price on the right
-                    Text(
-                        text = "$${"%.2f".format(price)}",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
             }
 
-            // ─── Bottom Half: Line Chart spanning full width ───────────────────
-            Box(
-                modifier = Modifier
+            Spacer(Modifier.height(4.dp))
+
+            MultiLineChart(
+                data            = { multiLineData },
+                modifier        = Modifier
                     .fillMaxWidth()
-                    .weight(2f),
-                contentAlignment = Alignment.Center
-            ) {
-                StockLineChart(
-                    data = history,
-                    lineColor = chartColor,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight()
-                        .padding(horizontal = 0.dp)
-                )
-            }
-//            Text(
-//                text = "History: " + history.joinToString(
-//                    prefix = "[", postfix = "]"
-//                ) { value -> "%.2f".format(value) },
-//                style    = MaterialTheme.typography.labelSmall,
-//                color    = MaterialTheme.colorScheme.onSurfaceVariant,
-//                modifier = Modifier
-//                    .fillMaxWidth()
-//                    .padding(4.dp)
-//            )
+                    .height(115.dp),
+                smoothLineCurve = true,
+                showFilledArea  = false,
+                showLineStroke  = true,
+                labelConfig     = LabelConfig.default().copy(
+                    showXLabel = false,
+                    showYLabel = false
+                ),
+                chartConfig     = LineChartConfig().copy(
+                    interactionTooltipConfig =
+                        InteractionTooltipConfig(isLongPressDragEnabled = false)
+                ),
+                target          = null,
+                targetConfig    = TargetConfig.default(),
+                onValueChange   = {}
+            )
         }
-    }
-}
-
-@Composable
-fun StockLineChart(
-    data: List<Double>,
-    lineColor: Color,
-    modifier: Modifier = Modifier
-) {
-    // 1) Normalize and convert to Float
-    val baseSeries: List<Float> = remember(data) {
-        when {
-            data.isEmpty()  -> listOf(1.0f, 1.0f)
-            data.size == 1  -> listOf(1.0f, data[0].toFloat())
-            else            -> data.map(Double::toFloat)
-        }
-    }
-
-    val floatData: List<Float> = remember(baseSeries) {
-        baseSeries + listOf(baseSeries.last())
-    }
-
-    // 2) Build the ChartDataSet
-    val dataSet = floatData.toChartDataSet(
-        title   = "",
-        postfix = ""
-    )
-
-    // 3) Customize style:
-    val style = LineChartDefaults.style(
-        lineColor         = lineColor.toArgb().let { Color(it) },
-        // remove all point circles:
-        pointSize         = 0f,
-        pointVisible      = false,
-        bezier            = false
-    )
-
-    // 4) Wrap in Box so you can size it exactly:
-    Box(
-        modifier = modifier.fillMaxWidth()
-            // enforce a minimum width & height in dp:
-//            .sizeIn(minWidth = 150.dp, minHeight = 80.dp)
-    ) {
-        LineChart(
-            dataSet = dataSet,
-            style   = style
-        )
     }
 }

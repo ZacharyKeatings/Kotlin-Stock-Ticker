@@ -2,6 +2,7 @@ package com.example.stockticker.ui.components.ingame
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -72,6 +73,16 @@ fun PlayerStats(
             else
                 MaterialTheme.colorScheme.surfaceVariant
 
+            val totalCost = holdings.sumOf {
+                (_, lots) -> lots.sumOf {
+                    it.qty * it.price
+                }
+            }
+            val totalValue = holdings.sumOf { (symbol, lots) ->
+                val currentPrice = stocks.optJSONObject(symbol)?.optDouble("price",0.0) ?: 0.0
+                lots.sumOf { it.qty * currentPrice }
+            }
+
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = cardColor)
@@ -91,6 +102,12 @@ fun PlayerStats(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
+                            text = "Paid: $${"%.2f".format(totalCost)}  \n" +
+                                    "Val: $${"%.2f".format(totalValue)}",
+                            style    = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
                             "Cash: $${"%.2f".format(cash)}",
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -105,18 +122,37 @@ fun PlayerStats(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            holdings.forEach { (symbol, lots) ->
-                                Column {
-                                    Text(
-                                        symbol,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                                    )
-                                    lots.filter { it.qty > 0 }.forEach { lot ->
-                                        Text(
-                                            "   • ${lot.qty} @ $${"%.2f".format(lot.price)}",
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
+                        val rows = remember(holdings) { holdings.chunked(3) }
+
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rows.forEach { rowHoldings ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // build exactly 3 columns per row
+                                    for (col in 0 until 3) {
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            rowHoldings.getOrNull(col)?.let { (symbol, lots) ->
+                                                Column {
+                                                    Text(
+                                                        text = symbol,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                                    )
+                                                    lots
+                                                        .filter { it.qty > 0 }
+                                                        .forEach { lot ->
+                                                            Text(
+                                                                text = "• ${lot.qty} @ $${"%.2f".format(lot.price)}",
+                                                                style = MaterialTheme.typography.bodySmall
+                                                            )
+                                                        }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -72,7 +72,7 @@ class GameViewModel : ViewModel() {
 
                 val previousList = oldState.priceHistory[symbol].orEmpty()
                 updatedPriceHistory[symbol] =
-                    (previousList + newPrice).takeLast(50)
+                    (previousList + newPrice).takeLast(100)
             }
 
             // Commit both the new game JSON and the rebuilt priceHistory together

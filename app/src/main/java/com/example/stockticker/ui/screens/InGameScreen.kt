@@ -213,7 +213,6 @@ fun InGameScreen(
                 // MARKET
                 0 -> StockBoard(
                     stocks       = stocksJson,
-                    stockChanges = uiState.stockChanges,
                     priceHistory = uiState.priceHistory,
                     modifier     = Modifier
                         .fillMaxSize()

@@ -31,6 +31,7 @@ import org.json.JSONArray
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 
 @Composable
 fun AutoResizedText(
@@ -68,39 +69,41 @@ fun DiceRollHistoryDisplay(
     val lastRollText: String? = (0 until historyArray.length())
         .map { historyArray.getJSONObject(it).getString("description") }
         .lastOrNull { it.startsWith("Rolled ") }
-
     if (lastRollText == null) return
 
     // 2) Split into the three parts
-    val parts = lastRollText.removePrefix("Rolled ").split(" → ").map(String::trim)
-    if (parts.size != 3) return
-    val action = parts[1].lowercase()
+    val finalParts = lastRollText.removePrefix("Rolled ").split(" → ").map(String::trim)
+    if (finalParts.size != 3) return
+    val action = finalParts[1].lowercase()
 
-    // 3) Flash state: toggles true on each new roll
-    var flash by remember { mutableStateOf(false) }
+    // 3) Pools for randomization
+    val stockOptions  = listOf("Gold", "Silver", "Oil", "Bonds", "Industrial", "Grain")
+    val actionOptions = listOf("up", "down", "dividend")
+    val amountOptions = listOf("5", "10", "20")
+
+    // 4) State: what’s currently showing, and per-box shake offsets
+    var displayParts by remember { mutableStateOf(finalParts) }
+    var offsets      by remember { mutableStateOf(List(3) { 0f to 0f }) }
+
+    // 5) Whenever the roll actually changes, do our “roll animation”
     LaunchedEffect(lastRollText) {
-        flash = true
-        // stay green for 600ms
-        kotlinx.coroutines.delay(600)
-        flash = false
+        // shake & randomize for ~6 frames at 75ms each
+        repeat(6) {
+            displayParts = listOf(
+                stockOptions.random(),
+                actionOptions.random(),
+                amountOptions.random()
+            )
+            offsets = List(3) {
+                // random offset between -6..6 pixels
+                ( -6..6 ).random().toFloat() to ( -6..6 ).random().toFloat()
+            }
+            kotlinx.coroutines.delay(75)
+        }
+        // settle on the real roll
+        displayParts = finalParts
+        offsets      = List(3) { 0f to 0f }
     }
-    val flashColor = when (action) {
-        "up"       -> Color(0xFF22C55E)  // green
-        "down"     -> Color(0xFFEF4444)  // red
-        "dividend" -> Color(0xFFFACC15)  // yellow
-        else       -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    // 4) Animate border color between transparent and green
-    val borderColor by animateColorAsState(
-        targetValue = if (flash) flashColor else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(durationMillis = 500, easing = FastOutLinearInEasing)
-    )
-
-    val borderWidth by animateDpAsState(
-        targetValue = if (flash) 3.dp else 1.dp,
-        animationSpec = tween(500, easing = FastOutLinearInEasing)
-    )
 
     // 5) Draw the row with that border
     Box(
@@ -114,17 +117,21 @@ fun DiceRollHistoryDisplay(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment   = Alignment.CenterVertically
         ) {
-            parts.forEach { part ->
+            displayParts.forEachIndexed { i, part ->
                 Box(
                     modifier = Modifier
                         .size(64.dp)
+                        .graphicsLayer {
+                            translationX = offsets[i].first
+                            translationY = offsets[i].second
+                        }
                         .background(
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(8.dp)
                         )
                         .border(
-                            width = borderWidth,
-                            color = borderColor,
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             shape = RoundedCornerShape(8.dp)
                         ),
                     contentAlignment = Alignment.Center
